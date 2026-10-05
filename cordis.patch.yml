@@ -1,0 +1,90 @@
+# ============================================================================
+# dsh-nai-image —— NovelAI 中转生图插件（DSH 版）
+#
+# 本文件是【组合包补丁】：package.json 里 `dsh.bundle.patch` 指向它。
+# 走 GUI「插件 → 添加插件」安装时由 Loader 自动读取，不需要手工粘贴。
+#
+# name 用的是【相对路径】'./lib/index.js'：Loader 会以本文件所在目录为基准
+# 解析成 file:// URL，因此整包移到哪都能工作（见 app-boot 的
+# anchorInsertedPluginNames）。
+#
+# 想改 token 等配置：不要改本文件，改 ~/.dsh/cordis.patch.yml，按 id 覆盖——
+#   - id: dsh-nai-image
+#     config:
+#       token: '你的 token'
+# 注意补丁的 config 是【整体替换】而非深合并，所以覆盖时必须把要保留的项一并写出；
+# 未写出的项回落到 lib/config.js 的默认值（默认值与参考实现一致）。
+# home 层优先级高于 bundle 层，因此覆盖生效。
+# ============================================================================
+- insert:
+    - id: dsh-nai-image
+      name: './lib/index.js'
+      config:
+        # ---------------------------------------------------------------- 通道
+        # direct = NAI 直连（任务接口优先，GET 兜底）
+        # openai = OpenAI 兼容中转站
+        callMode: direct
+
+        # ------------------------------------------------------ 直连（direct）
+        # 生图服务地址。上游是第三方中转站，非 NovelAI 官方 API。
+        baseUrl: 'https://nai.sta1n.cn'
+        # 生图 Token（必填）。到 nai.sta1n.cn 取 toUserId 那一串。
+        # 留空时插件仍会加载，但调用生图会给出「需要填写 Token」的提示。
+        token: ''
+        # 直连模型：nai-diffusion-4-5-full 或 nai-diffusion-5-full
+        model: nai-diffusion-4-5-full
+
+        # ------------------------------------------------ OpenAI 兼容（openai）
+        # callMode 改成 openai 时用下面三项。
+        # 填到 /v1 为止即可，插件自己补 /images/generations。
+        openaiBaseUrl: ''
+        openaiApiKey: ''
+        openaiModel: nai-diffusion-5-full
+
+        # ------------------------------------------------------------ 生成参数
+        # 画风：vertical / comicDoujin / r18 / lolita25d / anime / galgame / custom
+        imageStyle: vertical
+        # 仅 imageStyle: custom 时生效
+        customArtists: ''
+        # 画幅：竖图 / 横图 / 方图 / 2K竖图 / 2K横图 / 2K方图 / 4K竖图 / 4K横图 / 4K方图
+        # （OpenAI 通道可直接写像素，如 832x1216）
+        imageSize: 竖图
+        # 采样步数 1-50（直连任务接口支持满 50；GET 兜底通道上游会按 28 截断）
+        steps: 24
+        # 提示词引导强度；直连 0-20，OpenAI 通道上游会收敛到 0-10
+        scale: 6
+        # CFG Rescale 0-1
+        cfg: 1
+        # 采样器：k_dpmpp_2m_sde / k_dpmpp_2m / k_dpmpp_sde /
+        #         k_dpmpp_2s_ancestral / k_euler_ancestral / k_euler
+        sampler: k_dpmpp_2m_sde
+        # 噪声调度：karras / native / exponential / polyexponential
+        noiseSchedule: karras
+        # 反向提示词；留空则用参考实现的内置默认反向词
+        negative: ''
+        # 随机种子；-1 表示每次随机
+        seed: -1
+        # 不带 count 参数时的默认张数 1-6
+        defaultCount: 1
+
+        # ---------------------------------------------------------------- 网络
+        # 秒。直连下同时是任务轮询的总等待上限。
+        requestTimeout: 180
+        # OpenAI 通道失败重试次数 0-3（408/429/502/503/504 与瞬时文案才重试）
+        maxRetries: 2
+
+        # ---------------------------------------------------------------- 归档
+        # 是否把生成的图存到磁盘
+        saveImageHistory: true
+        # 归档目录；留空 = $DSH_HOME/plugin-data/dsh-nai-image/image_history
+        imageHistoryDir: ''
+        # 最多保留张数；0 = 不清理
+        imageHistoryLimit: 200
+
+        # ---------------------------------------------------------------- 开关
+        # 是否注册生图工具 nai_generate_image
+        enableTool: true
+        # 是否注册额度查询工具 nai_quota
+        enableQuotaTool: true
+        # 是否输出插件日志
+        verbose: true

@@ -1,0 +1,13 @@
+# 统一换行符：仓库内一律 LF，检出到 Windows 时不改写。
+#
+# 原因：test/*.mjs 里有几处断言比对源码文本（例如从 lib/client.js 里
+# 抠 GROUPS 字段名）。若检出时被换成 CRLF，那些基于文本的断言会失败，
+# 表现为「别人克隆下来跑测试就红」。
+* text=auto eol=lf
+
+# 二进制：不碰
+*.png binary
+*.jpg binary
+*.webp binary
+*.tgz binary
+*.ico binary

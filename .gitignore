@@ -1,0 +1,22 @@
+# 从 DSH 安装目录（app.asar）抽出的模块，供校验脚本使用。
+#
+# 这是他人闭源发行物的副本，不随仓库分发；跑 test/run-all.mjs 时
+# 会自动调用 test/setup-fixtures.mjs 重建。
+test/.fixtures/
+
+node_modules/
+npm-debug.log*
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.bak
+*.orig
+
+# 打包产物（由 Release 附件分发，不进源码仓库）
+*.tgz

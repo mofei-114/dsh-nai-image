@@ -1,0 +1,36 @@
+{
+  "name": "dsh-nai-image",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NovelAI (via nai.sta1n.cn) image generation for DSH: direct NAI and OpenAI-compatible channels, returning generated images into the conversation.",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./constants": "./lib/constants.js",
+    "./client-api": "./lib/nai-client.js",
+    "./config": "./lib/config.js",
+    "./schema": "./lib/schema.js",
+    "./store": "./lib/store.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "novelai",
+    "image-generation"
+  ],
+  "license": "MIT"
+}
