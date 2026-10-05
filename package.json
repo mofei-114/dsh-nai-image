@@ -1,6 +1,6 @@
 {
   "name": "dsh-nai-image",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "NovelAI (via nai.sta1n.cn) image generation for DSH: direct NAI and OpenAI-compatible channels, returning generated images into the conversation.",
