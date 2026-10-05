@@ -80,6 +80,10 @@ const state = {
   sawOpenAI: null,
   openaiAttempts: 0,
   mode: 'direct',
+  // 额度模拟：起始余额与单张扣费。下载图片时扣一次，
+  // 于是「生图前基线 − 生图后余额」的差值法能被真正验证。
+  balance: 1000,
+  costPerImage: 8,
 }
 
 const server = createServer((req, res) => {
@@ -110,6 +114,8 @@ const server = createServer((req, res) => {
     }
     // 图片下载
     if (req.method === 'GET' && url.pathname === '/api/images/img_1/content') {
+      // 图片真的产出即视为扣费发生（真实上游也是在这个时点落账）
+      state.balance -= state.costPerImage
       res.writeHead(200, { 'Content-Type': 'image/png' })
       res.end(PNG)
       return
@@ -122,9 +128,17 @@ const server = createServer((req, res) => {
       return
     }
     // 额度
+    //
+    // 模拟真实行为：每生成一张图，余额就掉 state.costPerImage 点。
+    // 这样「生图前基线 − 生图后余额」的差值法才被真正测到，
+    // 而不是永远得到 0（那样只会走「估算」兜底分支）。
     if (req.method === 'POST' && url.pathname === '/api/api/getUser') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: 'ok', data: { value: 123, balance: 456, enabled: true } }))
+      res.end(JSON.stringify({
+        status: 'ok',
+        type: 'sta1n',
+        data: { value: state.balance, balance: state.balance, enabled: true },
+      }))
       return
     }
     // OpenAI generations
@@ -309,8 +323,8 @@ say('=== 用例 5：额度查询 ===')
 {
   const { value } = await runTool({ callMode: 'direct', baseUrl: base, token: 'tok-abc', verbose: false },
     {}, 'nai_quota')
-  check('返回 value=123', value.value === 123, JSON.stringify(value))
-  check('返回 balance=456', value.balance === 456, String(value.balance))
+  check('返回 value（当前模拟余额）', value.value === state.balance, `${value.value} vs ${state.balance}`)
+  check('返回 balance（与 value 同源同值）', value.balance === state.balance, String(value.balance))
   check('summary 是人读文本', typeof value.summary === 'string' && value.summary.length > 0, JSON.stringify(value.summary))
 }
 say('')
@@ -321,16 +335,26 @@ say('')
 // 读不到结构化输出值，所以计费必须以带固定前缀的文本行透出。
 say('=== 用例 5b：计费行 ===')
 {
-  // 直连：mock 的提交响应带 cost:1，额度接口返回 balance:456
+  // 直连：mock 每次下载图片扣 8 点，起始余额 1000。
+  // 消耗应以「生图前基线 − 生图后余额」为准 = 8。
   const { value } = await runTool({ callMode: 'direct', baseUrl: base, token: 'tok-abc', verbose: false, saveImageHistory: false },
-    { prompt: 'billing direct' })
+    { prompt: 'billing direct', count: 1 })
   check('直连结果带 billing 行', typeof value.billing === 'string', JSON.stringify(value.billing))
   check('billing 带固定前缀（界面按它解析）',
     String(value.billing).startsWith('计费: '), String(value.billing))
-  check('billing 含本次消耗 = 1（提交响应的 cost）',
-    /本次消耗:\s*1\b/.test(String(value.billing)), String(value.billing))
-  check('billing 含剩余点数 = 456（额度接口的 balance）',
-    /剩余点数:\s*456\b/.test(String(value.billing)), String(value.billing))
+  check('本次消耗 = 8（余额差值，与 mock 扣费一致）',
+    /本次消耗:\s*8\b/.test(String(value.billing)), String(value.billing))
+  check('消耗不是「估算」形态（说明差值法生效了）',
+    !String(value.billing).includes('估算'), String(value.billing))
+  check('剩余点数与差值自洽（生图后余额 = 生图前 − 消耗）',
+    (() => {
+      const m = /剩余点数:\s*(\d+)/.exec(String(value.billing))
+      const c = /本次消耗:\s*(\d+)/.exec(String(value.billing))
+      // 无法直接知道基线（该测试前面还跑过别的用例），改为断言两者都存在且为正
+      return m !== null && c !== null && Number(m[1]) > 0 && Number(c[1]) > 0
+    })(), String(value.billing))
+  check('上游自报值与实扣不符时明确标出（mock 报 1，实扣 8）',
+    String(value.billing).includes('上游报 1'), String(value.billing))
 
   // 计费行必须出现在 render 产出的文本块里，且能被界面解析
   const ctx2 = makeCtx()

@@ -116,8 +116,78 @@ out.push(`${scaleOk ? 'PASS' : 'FAIL'}  scale 负值被夹到 0  -> ${lastBody?.
 if (!stepOk) failures += 1
 if (!scaleOk) failures += 1
 
+// ---------------------------------------------------------- token 泄漏防护
+//
+// 实测发现：上游 POST /api/api/getUser 会在响应里**明文回显调用方 token**
+// （{"data":{"value":N,"balance":N,"token":"STA1N-…","enabled":true}}）。
+// 这个响应流过插件代码，所以任何打印/转发整体 data 的地方都会泄漏凭据。
+out.push('')
+out.push('=== token 泄漏防护 ===')
+{
+  const client = await import(pathToFileURL(joinPath(PROJECT, 'lib/nai-client.js')).href)
+
+  // 1) 遮蔽函数本身
+  //
+  // 这个样例必须是**合成值**。绝不要拿真实 token 当测试数据 ——
+  // 它会随代码进公开仓库。（本项目真的犯过这个错，见 CHANGELOG 式的教训记录。）
+  const SAMPLE = 'STA1N-EXAMPLEnotarealtoken0000'
+  const redacted = client.redactToken(`bad key ${SAMPLE} rejected`)
+  const maskOk = !redacted.includes(SAMPLE) && redacted.includes('***')
+  out.push(`${maskOk ? 'PASS' : 'FAIL'}  redactToken 抹掉 STA1N- 样式的串  -> ${redacted}`)
+  if (!maskOk) failures += 1
+
+  const edge = [
+    ['无 token 的文本原样保留', client.redactToken('plain message'), 'plain message'],
+    ['多个 token 全部遮蔽',
+      (() => { const r = client.redactToken(`${SAMPLE} and ${SAMPLE}`); return r.includes(SAMPLE) ? 'LEAKED' : 'masked-both' })(),
+      'masked-both'],
+    ['空值不炸', client.redactToken(''), ''],
+    ['undefined 不炸', client.redactToken(undefined), ''],
+  ]
+  for (const [label, got, want] of edge) {
+    const ok = got === want
+    out.push(`${ok ? 'PASS' : 'FAIL'}  ${label}  -> ${JSON.stringify(got)}`)
+    if (!ok) failures += 1
+  }
+
+  // 2) fetchQuota 必须只返回额度字段，绝不带出 token
+  //    用本地 http 服务伪造上游：响应体里塞 token，看插件往外给什么。
+  const srv = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      status: 'ok',
+      type: 'sta1n',
+      data: { value: 100, balance: 100, token: SAMPLE, enabled: true },
+    }))
+  })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  const port = srv.address().port
+
+  const inst = new client.NaiClient({
+    callMode: 'direct',
+    baseUrl: `http://127.0.0.1:${port}`,
+    token: SAMPLE,
+    requestTimeout: 10,
+    openaiApiKey: '',
+    maxRetries: 0,
+  })
+  const data = await inst.fetchQuota()
+  const keys = Object.keys(data).sort().join(',')
+  const onlyQuota = keys === 'balance,enabled,value'
+  out.push(`${onlyQuota ? 'PASS' : 'FAIL'}  fetchQuota 只返回额度字段（白名单投影）  -> [${keys}]`)
+  if (!onlyQuota) failures += 1
+
+  const serialized = JSON.stringify(data)
+  const noLeak = !serialized.includes(SAMPLE) && !serialized.includes('STA1N-')
+  out.push(`${noLeak ? 'PASS' : 'FAIL'}  fetchQuota 返回值里没有 token  -> ${serialized}`)
+  if (!noLeak) failures += 1
+
+  srv.close()
+}
+
 out.push(`\nFAILURES: ${failures}`)
 writeFileSync(PROBE + '/adversarial.txt', out.join('\n'), 'utf8')
 console.log(out.join('\n'))
+
 server.close()
 process.exit(failures === 0 ? 0 : 1)

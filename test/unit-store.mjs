@@ -1,7 +1,7 @@
 // 单元测试：图片头解析、归档、附件降级路径（手写解析器最易出错）。
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { deflateSync } from 'node:zlib'
 
@@ -126,6 +126,41 @@ check('显式配置优先', store.resolveHistoryDir('C:/custom/dir') === 'C:/cus
   const def = store.resolveHistoryDir('')
   check('默认落在 plugin-data 下', def.includes('plugin-data') && def.includes('dsh-nai-image'), def)
 }
+
+// 回归：从浏览器/聊天窗口复制路径时常带进不可见的排版控制字符（U+202A 等）。
+// 它会让 path.isAbsolute() 返回 false，Windows 于是当相对路径解析 ——
+// 归档落到意外位置或直接失败，而旧实现是静默吞掉的。
+out.push('--- 隐形字符防御（粘贴路径的真实事故）---')
+{
+  const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/
+  const LRE = String.fromCodePoint(0x202A)
+  const dirty = `${LRE}E:\\1\\harness\\DSH出图`
+
+  check('脏路径确实会被 isAbsolute 判为相对', !isAbsolute(dirty), JSON.stringify(dirty))
+  check('sanitizeDir 剥掉前导 U+202A',
+    store.sanitizeDir(dirty) === 'E:\\1\\harness\\DSH出图', JSON.stringify(store.sanitizeDir(dirty)))
+  check('sanitizeDir 结果不含任何隐形字符', !INVISIBLE.test(store.sanitizeDir(dirty)))
+  check('resolveHistoryDir 返回清洗后的路径',
+    store.resolveHistoryDir(dirty) === 'E:\\1\\harness\\DSH出图', JSON.stringify(store.resolveHistoryDir(dirty)))
+
+  // 尾随与包裹的情况
+  check('sanitizeDir 剥掉尾随隐形字符',
+    store.sanitizeDir(`E:\\dir${LRE}`) === 'E:\\dir')
+  check('sanitizeDir 剥掉连续多个',
+    store.sanitizeDir(`${LRE}${LRE}E:\\dir`) === 'E:\\dir')
+  check('sanitizeDir 剥掉首尾空白', store.sanitizeDir('  E:\\dir  ') === 'E:\\dir')
+  check('sanitizeDir 容忍非字符串', store.sanitizeDir(undefined) === '' && store.sanitizeDir(123) === '')
+
+  // 中间的控制字符不该被悄悄改掉，而是被判为不可用
+  check('中间含隐形字符 → historyDirProblem 报错',
+    typeof store.historyDirProblem(`E:\\a${LRE}b`) === 'string',
+    String(store.historyDirProblem(`E:\\a${LRE}b`)))
+  check('干净绝对路径 → 无问题', store.historyDirProblem('E:\\dir') === null)
+  check('相对路径 → 报「不是绝对路径」',
+    String(store.historyDirProblem('relative\\dir')).includes('不是绝对路径'))
+  check('空路径 → 报「目录为空」',
+    String(store.historyDirProblem('')).includes('空'))
+}
 out.push('')
 
 // --------------------------------------------------------- attachmentValue
@@ -168,11 +203,11 @@ out.push('=== archiveImage ===')
   const png = makePng(64, 96)
 
   const p1 = await store.archiveImage({ dir, data: png, mediaType: 'image/png', limit: 0, stamp: 'a' })
-  check('归档成功且文件存在', typeof p1 === 'string' && existsSync(p1), p1)
-  check('扩展名按类型 .png', p1?.endsWith('.png'))
+  check('归档成功且文件存在', typeof p1.path === 'string' && existsSync(p1.path), JSON.stringify(p1))
+  check('扩展名按类型 .png', p1.path?.endsWith('.png'))
 
   const p2 = await store.archiveImage({ dir, data: png, mediaType: 'image/jpeg', limit: 0, stamp: 'b' })
-  check('jpeg 归档为 .jpg', p2?.endsWith('.jpg'))
+  check('jpeg 归档为 .jpg', p2.path?.endsWith('.jpg'))
 
   for (let i = 0; i < 4; i += 1) {
     await store.archiveImage({ dir, data: png, mediaType: 'image/png', limit: 2, stamp: `c${i}` })
@@ -181,8 +216,21 @@ out.push('=== archiveImage ===')
   const left = readdirSync(dir).filter((n) => n.startsWith('nai_'))
   check('超出上限被清理到 2 张', left.length === 2, left.join(','))
 
+  // 失败时必须给出**原因**，不能再静默 undefined：
+  // 用户看到图但磁盘没文件，无从自查就是被这一点坑的。
   const badResult = await store.archiveImage({ dir: 'Z:/definitely/not/here', data: png, mediaType: 'image/png', limit: 0, stamp: 'z' })
-  check('写入失败返回 undefined 而非抛错', badResult === undefined)
+  check('写入失败不抛错', badResult.path === undefined && typeof badResult.error === 'string', JSON.stringify(badResult))
+  check('失败原因里带得上错误码', /Z:|ENOENT|失败/.test(String(badResult.error)), badResult.error)
+
+  // 隐形字符路径必须在碰 fs 之前就被拦下
+  const LRE = String.fromCodePoint(0x202A)
+  const dirtyDir = `${LRE}${dir}`
+  const dirtyResult = await store.archiveImage({ dir: dirtyDir, data: png, mediaType: 'image/png', limit: 0, stamp: 'd' })
+  check('脏路径被拦下且不写盘',
+    dirtyResult.path === undefined && String(dirtyResult.error).includes('不可见'), JSON.stringify(dirtyResult))
+
+  const relResult = await store.archiveImage({ dir: 'relative/dir', data: png, mediaType: 'image/png', limit: 0, stamp: 'r' })
+  check('相对路径被拦下', relResult.path === undefined && String(relResult.error).includes('绝对路径'), JSON.stringify(relResult))
 
   rmSync(dir, { recursive: true, force: true })
 }
