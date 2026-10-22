@@ -23,6 +23,8 @@ const suites = [
   { name: 'e2e', file: 'e2e.mjs' },
   { name: 'adversarial', file: 'adversarial.mjs' },
   { name: 'config', file: 'config-robust.mjs' },
+  // v1.2.0：槽位 / 多角色块 / 法典词库
+  { name: 'features', file: 'unit-features.mjs' },
   { name: 'diff-size', file: 'diff-size.mjs' },
 ]
 

@@ -89,15 +89,20 @@ for (const def of registered) {
   // 画风不可传参：schema 里不能有 style，且因为 additionalProperties:false，
   // 调用了 style 会被判为非法参数。
   if (def.name === 'nai_generate_image') {
-    check('参数表里没有 style（画风只认配置）', () => {
-      if (def.parameters.properties.style !== undefined) {
-        throw new Error('style 仍在参数表里: ' + JSON.stringify(Object.keys(def.parameters.properties)))
-      }
-      return JSON.stringify(Object.keys(def.parameters.properties))
+    // v1.2.0（同步上游 v2.9.0）：画风槽位把 style 变成**标准参数** ——
+    // 之前「画风只认配置、参数表里没有 style」的旧约定已随槽位功能作废。
+    // 这里改为断言 style 存在且是字符串，不再断言它被拒绝。
+    check('参数表里有 style（画风槽位，v1.2.0 起）', () => {
+      const style = def.parameters.properties.style
+      if (style === undefined) throw new Error('缺少 style 参数: ' + JSON.stringify(Object.keys(def.parameters.properties)))
+      if (style.type !== 'string') throw new Error('style 不是 string: ' + JSON.stringify(style))
+      return 'style 类型=' + style.type
     })
-    check('传 style 会被 schema 拒绝', () => {
-      const v = tools.validateJsonSchemaValue(def.parameters, { prompt: 'a', style: 'anime' }, 'parameters')
-      if (v.length === 0) throw new Error('style 被接受了（本应因 additionalProperties:false 被拒）')
+    check('风格参数仍是字符串（不因槽位变成枚举）', () => {
+      // 槽位名可由用户自定义，做成 enum 会让「新增槽位后模型必须重启才能用」
+      // —— 那是本插件刻意避免的耦合，故只校验类型。
+      const v = tools.validateJsonSchemaValue(def.parameters, { prompt: 'a', style: 123 }, 'parameters')
+      if (v.length === 0) throw new Error('非字符串 style 被接受了')
       return 'violations=' + v.length
     })
   }

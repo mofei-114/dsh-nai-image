@@ -174,13 +174,40 @@ GUI 表单里这些约束由 Config schema 先挡一道（`z.number().min(1).max
 
 | 参数 | 说明 |
 |---|---|
-| `prompt` | 必填。逗号分隔的英文 tag 效果最好 |
-| `style` | 覆盖本次画风 |
+| `prompt` | 必填。逗号分隔的英文 tag 效果最好。支持 `【法典:词条名】` 宏（需开启法典） |
+| `style` | **画风槽位名**（v1.2.0）。选中后该槽位绑定的模型与画师串一起生效；未命中会告警并回落默认画风 |
+| `char1_prompt` / `char2_prompt` | **多角色块**（v1.2.0，需开启）。只写该角色自身的标签，两个角色分别居中于左右半幅、各自独立不串色 |
 | `size` | 覆盖本次画幅/尺寸 |
 | `negative` | 覆盖本次反向词 |
 | `steps` / `scale` / `seed` / `count` | 覆盖本次生成参数（`seed` 固定可复现） |
 
 单次参数只影响当次调用，不写回配置。越界值会被夹到合法区间（如 `steps: 999` → `50`）。
+
+`nai_search_grimoire`（v1.2.0，需开启法典）：
+
+| 参数 | 说明 |
+|---|---|
+| `query` | 检索关键词（中文）。留空则按 id 顺序列出前几条 |
+| `limit` | 返回条数 1-50，默认 12 |
+
+按当前生图模型自动限定词库版本：V4.5 只查 V4.5 卷；V5 同查 V5 卷与 V4.5 卷。
+不生图、不消耗点数。
+
+## v1.2.0 新增能力（同步上游 v2.9.0）
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `enableArtistSlots` | **开** | 画风槽位：画风名 / 适用模型 / 画师串绑成一条 |
+| `activeSlot` | 空 | 启用的槽位名；留空用 `imageStyle` 那一套 |
+| `artistSlots` | 空 | 槽位表（JSON 数组）；留空用内置 7 套画风预置 |
+| `enableCharacterBlocks` | 关 | 多角色块（`char1_prompt` / `char2_prompt`） |
+| `enableGrimoire` | 关 | 法典词库（19,663 条）+ `nai_search_grimoire` 工具 |
+
+⚠️ `enableCharacterBlocks` / `enableGrimoire` 决定**注册哪些工具**，
+与 `enableTool` / `enableQuotaTool` 一样**改完需要重启**。其余字段即时生效。
+
+⚠️ **不移植上游的 AstrBot 专属交互**：`/image`、`/法典` 等斜杠指令、
+`pages/test-panel/` 独立测试面板。DSH 没有对应机制，能力已改由工具承担。
 
 ## 代码结构
 

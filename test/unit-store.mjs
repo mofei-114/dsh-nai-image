@@ -155,7 +155,9 @@ out.push('--- 隐形字符防御（粘贴路径的真实事故）---')
   check('中间含隐形字符 → historyDirProblem 报错',
     typeof store.historyDirProblem(`E:\\a${LRE}b`) === 'string',
     String(store.historyDirProblem(`E:\\a${LRE}b`)))
-  check('干净绝对路径 → 无问题', store.historyDirProblem('E:\\dir') === null)
+  // 平台无关：原断言写死 Windows 路径 'E:\\dir'，在 Linux 上它不是绝对路径，
+  // 于是这条判据在非 Windows 环境恒为 FAIL（与被测代码无关）。
+  check('干净绝对路径 → 无问题', store.historyDirProblem(join(tmpdir(), 'dir')) === null)
   check('相对路径 → 报「不是绝对路径」',
     String(store.historyDirProblem('relative\\dir')).includes('不是绝对路径'))
   check('空路径 → 报「目录为空」',
